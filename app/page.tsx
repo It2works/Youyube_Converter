@@ -10,6 +10,7 @@ type InfoState =
       title: string;
       duration: string;
       videoId: string;
+      channel: string | null;
       resolvedUrl: string;
     }
   | { status: "error"; message: string };
@@ -28,6 +29,7 @@ function parseYouTubeInput(raw: string): string | null {
 
 export default function Home() {
   const [input, setInput] = useState("");
+  const [bitrate, setBitrate] = useState<128 | 192 | 320>(192);
   const [info, setInfo] = useState<InfoState>({ status: "idle" });
 
   const fetchInfo = useCallback(async () => {
@@ -38,19 +40,30 @@ export default function Home() {
     }
     setInfo({ status: "loading" });
     try {
-      const res = await fetch(
-        `/api/info?url=${encodeURIComponent(url)}`,
-        { method: "GET" },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+      const raw = await res.text();
+      let data: {
+        error?: unknown;
+        title?: string;
+        videoId?: string;
+        duration?: string;
+        channel?: string | null;
+      } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
         setInfo({
           status: "error",
-          message:
-            typeof data.error === "string"
-              ? data.error
-              : "Could not read that video. It may be private, age-restricted, or region-blocked.",
+          message: `Server returned ${res.status} (not JSON). ${raw.slice(0, 200)}`,
         });
+        return;
+      }
+      if (!res.ok) {
+        const errText =
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : `Request failed (${res.status}).`;
+        setInfo({ status: "error", message: errText });
         return;
       }
       setInfo({
@@ -58,6 +71,7 @@ export default function Home() {
         title: data.title ?? "Unknown title",
         duration: data.duration ?? "",
         videoId: data.videoId ?? "",
+        channel: data.channel ?? null,
         resolvedUrl: url,
       });
     } catch {
@@ -70,7 +84,9 @@ export default function Home() {
 
   const downloadHref =
     info.status === "ok"
-      ? `/api/download?url=${encodeURIComponent(info.resolvedUrl)}`
+      ? `/api/mp3?url=${encodeURIComponent(info.resolvedUrl)}&title=${encodeURIComponent(
+          info.title,
+        )}&bitrate=${bitrate}`
       : null;
 
   return (
@@ -82,17 +98,11 @@ export default function Home() {
             YouTube Converter
           </h1>
           <p className="text-sm leading-relaxed text-zinc-400">
-            Put your video link below, then download. You get{" "}
-            <span className="text-zinc-200">only the audio</span> (no video
-            file). It saves like a normal download on your phone or PC.
-          </p>
-          <p className="text-xs leading-relaxed text-zinc-500">
-            Honest detail: the file is usually{" "}
-            <code className="rounded bg-zinc-800 px-1 py-0.5">.m4a</code> or{" "}
-            <code className="rounded bg-zinc-800 px-1 py-0.5">.webm</code>, not
-            always <code className="rounded bg-zinc-800 px-1 py-0.5">.mp3</code>
-            . For listening in music apps it works the same; if you truly need
-            MP3, convert once on your device (e.g. VLC).
+            Paste a video link, get a real{" "}
+            <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-200">
+              .mp3
+            </code>{" "}
+            audio file on your device.
           </p>
         </header>
 
@@ -111,7 +121,8 @@ export default function Home() {
             placeholder="https://www.youtube.com/watch?v=…"
             className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-red-500/60 focus:outline-none focus:ring-2 focus:ring-red-500/20"
           />
-          <div className="mt-4 flex flex-wrap gap-3">
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={fetchInfo}
@@ -120,14 +131,29 @@ export default function Home() {
             >
               {info.status === "loading" ? "Checking…" : "Look up video"}
             </button>
+
+            <div className="flex items-center gap-2 text-xs text-zinc-400">
+              <label htmlFor="bitrate">Quality</label>
+              <select
+                id="bitrate"
+                value={bitrate}
+                onChange={(e) =>
+                  setBitrate(Number(e.target.value) as 128 | 192 | 320)
+                }
+                className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100 focus:border-red-500/60 focus:outline-none"
+              >
+                <option value={128}>128 kbps</option>
+                <option value={192}>192 kbps</option>
+                <option value={320}>320 kbps</option>
+              </select>
+            </div>
+
             {downloadHref && (
               <a
                 href={downloadHref}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-xl border border-zinc-600 bg-zinc-800 px-5 py-2.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-700"
               >
-                Save on my device
+                Download MP3
               </a>
             )}
           </div>
@@ -147,11 +173,11 @@ export default function Home() {
                 Ready
               </p>
               <p className="text-sm font-medium text-zinc-100">{info.title}</p>
+              {info.channel && (
+                <p className="text-xs text-zinc-500">{info.channel}</p>
+              )}
               {info.duration && (
                 <p className="text-xs text-zinc-500">Duration: {info.duration}</p>
-              )}
-              {info.videoId && (
-                <p className="font-mono text-xs text-zinc-600">ID: {info.videoId}</p>
               )}
             </div>
           )}

@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+.env*.local
+.vercel
+*.log
+README.md
+Dockerfile
+.dockerignore
+.DS_Store
+.cursor
